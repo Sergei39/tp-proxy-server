@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/Sergei39/tp-proxy-server/repeater"
 	"github.com/jackc/pgx"
 	"io"
 	"log"
@@ -10,70 +11,6 @@ import (
 	"strings"
 	"time"
 )
-
-func middlewareSaveDb(next http.HandlerFunc) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Println("Executing middlewareSaveDb")
-		next.ServeHTTP(w, r)
-		log.Println("Executing middlewareSaveDb again")
-	})
-}
-
-func (h handlers) saveRequest(r http.Request) {
-	query := `INSERT INTO requests (method, path) VALUES ($1, $2) returning id`
-
-	pathParams := strings.Split(r.RequestURI, "?")
-	var id int
-	err := h.DB.QueryRow(query, r.Method, pathParams[0]).Scan(&id)
-	if err != nil {
-		fmt.Println("don't save request")
-	}
-
-	if len(pathParams) > 1{
-		query = `INSERT INTO params (request, name, value, type) VALUES `
-		var queryParams []interface{}
-
-		getParams := strings.Split(pathParams[1], "&")
-		for i, params := range getParams {
-			nameVal := strings.Split(params, "=")
-			if len(nameVal) != 2 {
-				continue
-			}
-			query += fmt.Sprintf("($%d, $%d, $%d, $%d)", i*4+1, i*4+2, i*4+3, i*4+4)
-			if i < len(getParams) - 1 {
-				query += ", "
-			}
-			queryParams = append(queryParams, id, nameVal[0], nameVal[1], 0)
-		}
-
-		h.DB.Exec(query, queryParams...)
-		if err != nil {
-			fmt.Println("don't save request")
-		}
-	}
-
-
-	query = `INSERT INTO params (request, name, value, type) VALUES `
-	var queryParams []interface{}
-
-	getParams := strings.Split(pathParams[1], "&")
-	for i, params := range getParams {
-		nameVal := strings.Split(params, "=")
-		if len(nameVal) != 2 {
-			continue
-		}
-		query += fmt.Sprintf("($%d, $%d, $%d, $%d)", i*4+1, i*4+2, i*4+3, i*4+4)
-		if i < len(getParams) - 1 {
-			query += ", "
-		}
-		queryParams = append(queryParams, id, nameVal[0], nameVal[1], 0)
-	}
-
-	h.DB.Exec(query, queryParams...)
-	if err != nil {
-		fmt.Println("don't save request")
-	}
-}
 
 func (h handlers) proxyHTTPS(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Host: ", r.Host)
@@ -110,7 +47,7 @@ func changeHTTPRequest(r *http.Request) {
 
 func (h handlers) proxyHTTP(w http.ResponseWriter, r *http.Request) {
 	changeHTTPRequest(r)
-	h.saveRequest(*r)
+	h.repeater.SaveRequest(*r)
 	resp, err := http.DefaultTransport.RoundTrip(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -131,12 +68,12 @@ func copyHeader(dst, src http.Header) {
 }
 
 type handlers struct {
-	DB *pgx.ConnPool
+	repeater repeater.Repeater
 }
 
-func NewHandlers(DB *pgx.ConnPool) *handlers {
+func NewHandlers(rp repeater.Repeater) *handlers {
 	return &handlers{
-		DB: DB,
+		repeater: rp,
 	}
 }
 
@@ -170,11 +107,13 @@ func main() {
 		return
 	}
 
-	handlers := NewHandlers(db)
+	rp := repeater.NewRepeater(db)
+
+	handlers := NewHandlers(rp)
 
 	server := &http.Server{
 		Addr: ":8088",
-		Handler: middlewareSaveDb(handlers.proxy),
+		Handler: http.HandlerFunc(handlers.proxy),
 	}
 	log.Fatal(server.ListenAndServe())
 }
