@@ -24,7 +24,7 @@ COPY --from=builder /build/main .
 
 COPY . .
 
-EXPOSE 8088
+EXPOSE 8080
 EXPOSE 8000
 EXPOSE 5432
 

@@ -36,7 +36,7 @@ func main() {
 	proxy := proxy_server.NewProxyServer(rp)
 
 	serverProxy := &http.Server{
-		Addr:    ":" + "8088",
+		Addr:    ":" + "8080",
 		Handler: proxy.SaveMiddleware(proxy.Handler),
 	}
 	go func() {
